@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Credenciales: nunca se suben al repositorio
+.streamlit/secrets.toml
+.env
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
