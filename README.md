@@ -21,6 +21,11 @@ $$R(a_i \mid \mathbf{x}) = \sum_{k=0}^{2} C(a_i,\omega_k)\,P(\omega_k \mid \math
 
 Acciones posibles: no hacer nada, recordatorio, llamado, derivar a recupero. La matriz de costos se puede editar en pantalla.
 
+La app tiene tres pestañas:
+- **Cliente individual:** probabilidades, costo esperado de cada acción y acción recomendada.
+- **Comparación de políticas:** costo en el conjunto de test de la regla de Bayes frente a la regla ingenua (clase más probable), las políticas triviales y la referencia ideal.
+- **Cómo funciona:** la matemática del modelo y de la decisión.
+
 ## Rol de la IA
 
 La IA (un asistente de IA generativa) se usó **solo para construir la app**, no durante su uso. Durante el uso, la recomendación sale de una regla matemática explícita, sin llamadas a servicios externos. Por eso la app no requiere claves ni credenciales.
@@ -36,7 +41,8 @@ El detalle de cada consulta a la IA, los errores encontrados y las correcciones 
 | Archivo | Contenido |
 |---|---|
 | `app.py` | La aplicación |
-| `clientes_simulados_cobranza.csv` | 5.000 clientes simulados |
+| `clientes_simulados_normal.csv` | 5.000 clientes simulados en escala logit; **es el que usa el modelo** |
+| `clientes_simulados_cobranza.csv` | Simulación original en unidades reales, de la que se deriva la anterior |
 | `requirements.txt` | Librerías, con versiones fijas para reproducibilidad |
 | `REGISTRO_IA.md` | Registro de uso de IA, errores y correcciones |
 
@@ -52,7 +58,9 @@ streamlit run app.py
 ## Decisiones de diseño
 
 - **QDA** en lugar de LDA, según la validación de supuestos (matrices de covarianza distintas por clase).
-- **Variables:** días de atraso, relación cuota/ingreso, antigüedad y saldo promedio. Se excluyó `n_productos` por ser discreta (no compatible con el supuesto de normalidad multivariada).
+- **Datos en escala logit:** cada variable se lleva a (0, 1) con límites de negocio y se le aplica logit; luego se simula una normal multivariada por clase. Así el supuesto de normalidad de QDA es razonable. La app recibe valores en unidades reales y aplica la misma transformación.
+- **Variables:** días de atraso, relación cuota/ingreso, antigüedad, saldo promedio y cantidad de productos.
+- **Reproducibilidad:** el modelo replica el pipeline de la investigación (misma partición, mismo modelo, misma matriz de costos).
 - **Sin rebalanceo de clases** (por ejemplo, SMOTE), porque descalibra las probabilidades y empeora la decisión por costos.
 - **Partición** 70/30 estratificada, semilla 42.
 
