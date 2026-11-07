@@ -29,6 +29,16 @@ Cada fila es una interacción con la IA durante la construcción de la app. Este
 | 14 | 07/11/2026 | Sumar la evaluación económica del notebook 07 | Pestaña "Comparación de políticas": Bayes contra ingenua, triviales e ideal, con ahorro y brecha por cliente; se recalcula al editar la matriz de costos | — | — | A |
 | 15 | 07/11/2026 | Alcance de la etapa 2 | La IA proponía incluir intervalos de confianza sobre el costo (notebook 08) | Se dejó fuera: todavía no está profundizado ese tema en la investigación | Mati | P |
 
+## Etapa 3 — Simplificación y evaluación de casos nuevos
+
+| # | Fecha | Qué se pidió | Qué devolvió la IA | Problema o decisión | Quién lo detectó o decidió | Tipo |
+|---|---|---|---|---|---|---|
+| 16 | 07/11/2026 | Revisión de la app por el usuario | — | La app era difícil de leer y no se encontraba un caso que se derivara a recupero | Mati | E |
+| 17 | 07/11/2026 | Facilitar la lectura | Perfiles de ejemplo (uno por acción), resultado destacado con color y explicación en una línea, probabilidades como barras, detalle del cálculo plegado | Se buscaron en el conjunto de test perfiles típicos de cada acción y se verificó que cada ejemplo produzca la acción que dice | IA | A |
+| 18 | 07/11/2026 | Vista de políticas más ejecutiva | Pestaña "Resultados del modelo": una frase con el ahorro, tres indicadores, comparación de cuatro políticas y explicación de por qué ahorra; el detalle queda plegado | La "regla ingenua" de la investigación se presenta como "regla actual" para un público de negocio | IA; a validar por Mati | A / P |
+| 19 | 07/11/2026 | Evaluar casos nuevos con el modelo entrenado | Pestaña "Evaluar varios clientes": plantilla CSV, validación de columnas y rangos, resultados descargables | Se agregó un aviso para no subir datos reales, porque la app está en la nube | IA; criterio de gobierno de datos | A / P |
+| 20 | 07/11/2026 | Prueba automática | La primera versión del lote usaba `st.stop()` ante un error del archivo, lo que también cortaba las pestañas siguientes | Se reemplazó por una función que termina con `return` | IA, al revisar | E / C |
+
 ## Limitaciones conocidas (se completa a medida que avanza)
 
 - Los datos son simulados: la distribución real de clientes puede ser distinta.
@@ -36,3 +46,4 @@ Cada fila es una interacción con la IA durante la construcción de la app. Este
 - La normalidad multivariada se cumple por construcción en escala logit (los datos se simularon así); con datos reales habría que validarla.
 - La app no incluye la acción de revisión manual.
 - La app no informa la incertidumbre del resultado (intervalos de confianza sobre el costo).
+- Los casos nuevos fuera de los rangos de la simulación no se evalúan; el modelo no extrapola de forma confiable.
