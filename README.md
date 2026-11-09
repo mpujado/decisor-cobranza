@@ -22,9 +22,9 @@ $$R(a_i \mid \mathbf{x}) = \sum_{k=0}^{2} C(a_i,\omega_k)\,P(\omega_k \mid \math
 Acciones posibles: no hacer nada, recordatorio, llamado, derivar a recupero. La matriz de costos se puede editar en pantalla.
 
 La app tiene cuatro pestañas:
+- **Resultados del modelo:** vista ejecutiva del ahorro de la regla de Bayes frente a la regla actual, medido en clientes de prueba.
 - **Evaluar un cliente:** se cargan los datos del cliente (o un perfil de ejemplo) y la app muestra la acción recomendada, su costo esperado y la probabilidad de cada desenlace.
-- **Evaluar varios clientes:** se sube un CSV con casos nuevos (hay una plantilla para descargar); el modelo ya entrenado devuelve la acción recomendada para cada uno y los resultados se pueden descargar.
-- **Resultados del modelo:** vista ejecutiva del ahorro frente a la regla actual, medido en clientes de prueba.
+- **Evaluar varios clientes:** con 100 clientes de ejemplo o con un CSV propio (hay plantilla). Muestra cuántos clientes van a cada acción, dónde se concentra el costo esperado y los 10 casos prioritarios; los resultados se pueden descargar.
 - **Cómo funciona:** la matemática del modelo y de la decisión.
 
 ## Rol de la IA

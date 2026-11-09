@@ -39,6 +39,14 @@ Cada fila es una interacción con la IA durante la construcción de la app. Este
 | 19 | 07/11/2026 | Evaluar casos nuevos con el modelo entrenado | Pestaña "Evaluar varios clientes": plantilla CSV, validación de columnas y rangos, resultados descargables | Se agregó un aviso para no subir datos reales, porque la app está en la nube | IA; criterio de gobierno de datos | A / P |
 | 20 | 07/11/2026 | Prueba automática | La primera versión del lote usaba `st.stop()` ante un error del archivo, lo que también cortaba las pestañas siguientes | Se reemplazó por una función que termina con `return` | IA, al revisar | E / C |
 
+## Etapa 4 — Reorganización para presentación
+
+| # | Fecha | Qué se pidió | Qué devolvió la IA | Problema o decisión | Quién lo detectó o decidió | Tipo |
+|---|---|---|---|---|---|---|
+| 21 | 09/11/2026 | Aclarar qué es "Costo medio con la app" | Explicación: costo realizado (ex post) de la regla de Bayes en test, distinto del riesgo esperado (ex ante) de cada cliente | La etiqueta era ambigua; pasó a "Costo medio con la app (regla de Bayes)" con una ayuda emergente | Mati | E / C |
+| 22 | 09/11/2026 | Reorganizar: el resultado del modelo primero | "Resultados del modelo" pasó a ser la primera pestaña, con un gráfico que destaca la política de la app | — | Mati | P |
+| 23 | 09/11/2026 | Evaluación de varios clientes más ejecutiva | Indicadores, gráfico de anillo por acción, barras de costo esperado por acción, frase con la concentración del costo y los 10 clientes prioritarios; la tabla completa queda plegada. Se agregó un lote de 100 clientes de ejemplo para la demo | Colores fijos por acción en toda la app | Mati (pedido); IA (diseño) | A |
+
 ## Limitaciones conocidas (se completa a medida que avanza)
 
 - Los datos son simulados: la distribución real de clientes puede ser distinta.

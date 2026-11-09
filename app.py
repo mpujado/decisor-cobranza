@@ -15,10 +15,11 @@ Datos 100 % simulados. La app recomienda; la decisión final es del analista.
 
 from pathlib import Path
 
+import altair as alt
 import numpy as np
 import pandas as pd
 import streamlit as st
-from scipy.special import logit
+from scipy.special import expit, logit
 from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis
 from sklearn.model_selection import train_test_split
 
@@ -88,6 +89,10 @@ EJEMPLOS = {
                                saldo_promedio_miles=150, n_productos=2),
 }
 
+# Un color fijo por acción, usado en todos los gráficos
+COLORES = {"No hacer nada": "#2e7d32", "Recordatorio": "#1976d2",
+           "Llamado": "#f9a825", "Derivar a recupero": "#c62828"}
+
 # Cómo se muestra cada acción recomendada
 ESTILO_ACCION = {
     "No hacer nada": (st.success, "Es muy probable que el cliente se regularice solo: "
@@ -138,19 +143,19 @@ def evaluar(datos_reales: pd.DataFrame, C: np.ndarray):
     return post, riesgos, riesgos.argmin(axis=1)
 
 
-def evaluar_lote(archivo):
-    """Valida el CSV subido y muestra la acción recomendada para cada cliente.
+def leer_lote(archivo):
+    """Lee y valida el CSV subido. Devuelve el DataFrame con filas válidas, o None.
     Usa return (no st.stop) para no cortar el resto de las pestañas."""
     try:
         lote = pd.read_csv(archivo)
     except Exception:
         st.error("No se pudo leer el archivo. Verificá que sea un CSV separado por comas.")
-        return
+        return None
 
     faltantes = [v for v in VARIABLES if v not in lote.columns]
     if faltantes:
         st.error(f"Faltan columnas: {', '.join(faltantes)}. Usá la plantilla.")
-        return
+        return None
 
     numericos = lote[VARIABLES].apply(pd.to_numeric, errors="coerce")
     validos = numericos.notna().all(axis=1)
@@ -160,23 +165,108 @@ def evaluar_lote(archivo):
         st.warning(f"{int((~validos).sum())} fila(s) con valores vacíos o fuera de rango "
                    "quedaron afuera de la evaluación.")
     if not validos.any():
-        return
+        return None
+    lote = lote[validos].copy()
+    lote[VARIABLES] = numericos[validos]
+    if "id_cliente" not in lote.columns:
+        lote.insert(0, "id_cliente", [f"C{i + 1}" for i in range(len(lote))])
+    return lote
 
-    post_l, riesgos_l, acc_l = evaluar(numericos[validos], C)
-    resultado = lote[validos].copy()
-    resultado["accion_recomendada"] = [ACCIONES[a] for a in acc_l]
-    resultado["costo_esperado"] = riesgos_l.min(axis=1).round(0)
-    for k, col in enumerate(["prob_se_regulariza_solo", "prob_regulariza_con_gestion",
-                             "prob_mora_grave"]):
-        resultado[col] = post_l[:, k].round(3)
 
-    st.markdown(f"**{len(resultado)} clientes evaluados**")
-    conteo = resultado["accion_recomendada"].value_counts().reindex(ACCIONES, fill_value=0)
-    for col, (nombre, cant) in zip(st.columns(4), conteo.items()):
-        col.metric(nombre, int(cant))
-    st.dataframe(resultado, width="stretch", hide_index=True)
-    st.download_button("Descargar resultados", resultado.to_csv(index=False),
-                       file_name="resultados_evaluacion.csv", mime="text/csv")
+@st.cache_data
+def lote_de_ejemplo(n: int = 100) -> pd.DataFrame:
+    """Clientes de prueba del modelo, pasados a unidades reales, para la demo."""
+    muestra = X_te.sample(n, random_state=7)
+    real = pd.DataFrame({v: a + (b - a) * expit(muestra[v]) for v, (a, b) in LIMITES.items()})
+    real = real.round({"dias_atraso": 0, "cuota_ingreso": 2, "antiguedad_meses": 0,
+                       "saldo_promedio_miles": 0, "n_productos": 0})
+    for v, (lo, hi) in RANGOS.items():
+        real[v] = real[v].clip(lo, hi)
+    real.insert(0, "id_cliente", [f"D{i + 1:03d}" for i in range(n)])
+    return real.reset_index(drop=True)
+
+
+def mostrar_lote(lote: pd.DataFrame):
+    """Vista ejecutiva de la evaluación de un grupo de clientes."""
+    post_l, riesgos_l, acc_l = evaluar(lote[VARIABLES], C)
+    res = lote.copy()
+    res["accion_recomendada"] = [ACCIONES[a] for a in acc_l]
+    res["costo_esperado"] = riesgos_l.min(axis=1).round(0)
+    res["prob_se_regulariza_solo"] = post_l[:, 0].round(3)
+    res["prob_regulariza_con_gestion"] = post_l[:, 1].round(3)
+    res["prob_mora_grave"] = post_l[:, 2].round(3)
+
+    n = len(res)
+    conteo = res["accion_recomendada"].value_counts().reindex(ACCIONES, fill_value=0)
+    a_derivar, a_llamar = int(conteo["Derivar a recupero"]), int(conteo["Llamado"])
+
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Clientes evaluados", n)
+    k2.metric("A derivar a recupero", f"{a_derivar} ({a_derivar / n:.0%})")
+    k3.metric("A llamar", f"{a_llamar} ({a_llamar / n:.0%})")
+    k4.metric("Costo esperado total", pesos(res["costo_esperado"].sum()))
+
+    resumen = pd.DataFrame({
+        "Acción": ACCIONES,
+        "Clientes": conteo.values,
+        "Costo esperado": [res.loc[res["accion_recomendada"] == a, "costo_esperado"].sum()
+                           for a in ACCIONES],
+    })
+    resumen["Etiqueta clientes"] = [f"{a}: {c}" for a, c in zip(ACCIONES, conteo.values)]
+    resumen["Etiqueta costo"] = resumen["Costo esperado"].map(pesos)
+    escala = alt.Scale(domain=ACCIONES, range=[COLORES[a] for a in ACCIONES])
+
+    g1, g2 = st.columns(2, gap="large")
+    with g1:
+        st.markdown("**¿Qué hacer con cada cliente?**")
+        dona = alt.Chart(resumen[resumen["Clientes"] > 0]).mark_arc(innerRadius=70).encode(
+            theta="Clientes:Q",
+            color=alt.Color("Etiqueta clientes:N",
+                            scale=alt.Scale(domain=list(resumen["Etiqueta clientes"]),
+                                            range=[COLORES[a] for a in ACCIONES]),
+                            legend=alt.Legend(orient="right", title=None, labelFontSize=13,
+                                              labelLimit=220)),
+            tooltip=["Acción", "Clientes"],
+        ).properties(height=300)
+        st.altair_chart(dona, width="stretch")
+    with g2:
+        st.markdown("**¿Dónde está el costo esperado?**")
+        base = alt.Chart(resumen).encode(
+            x=alt.X("Costo esperado:Q", title=None, axis=None,
+                    scale=alt.Scale(domainMax=resumen["Costo esperado"].max() * 1.35)),
+            y=alt.Y("Acción:N", sort=ACCIONES, title=None,
+                    axis=alt.Axis(labelFontSize=13, labelLimit=200)),
+        )
+        barras = base.mark_bar(cornerRadiusEnd=4, height=34).encode(
+            color=alt.Color("Acción:N", scale=escala, legend=None))
+        textos = base.mark_text(align="left", dx=6, fontSize=13, fontWeight="bold").encode(
+            text="Etiqueta costo:N")
+        st.altair_chart((barras + textos).properties(height=300), width="stretch")
+
+    total = resumen["Costo esperado"].sum()
+    if a_derivar and total > 0:
+        part = resumen.loc[resumen["Acción"] == "Derivar a recupero", "Costo esperado"].iloc[0]
+        st.info(f"Los clientes a derivar son el {a_derivar / n:.0%} del grupo, pero concentran "
+                f"el {part / total:.0%} del costo esperado: son los casos donde conviene poner "
+                "la atención primero.")
+
+    st.markdown("**Prioridad: los 10 clientes con mayor probabilidad de mora grave**")
+    top = res.nlargest(10, "prob_mora_grave")[
+        ["id_cliente", "prob_mora_grave", "accion_recomendada", "dias_atraso",
+         "cuota_ingreso"]]
+    st.dataframe(top, hide_index=True, width="stretch", column_config={
+        "id_cliente": "Cliente",
+        "prob_mora_grave": st.column_config.ProgressColumn(
+            "Probabilidad de mora grave", format="percent", min_value=0, max_value=1),
+        "accion_recomendada": "Acción recomendada",
+        "dias_atraso": "Días de atraso",
+        "cuota_ingreso": "Cuota / ingreso",
+    })
+
+    with st.expander("Ver todos los clientes y descargar"):
+        st.dataframe(res, width="stretch", hide_index=True)
+        st.download_button("Descargar resultados", res.to_csv(index=False),
+                           file_name="resultados_evaluacion.csv", mime="text/csv")
 
 
 def cargar_ejemplo(nombre: str):
@@ -211,8 +301,8 @@ C = costos.to_numpy(dtype=float)
 for v, valor in EJEMPLOS["Llamado"].items():
     st.session_state.setdefault(f"in_{v}", valor)
 
-tab_uno, tab_lote, tab_result, tab_metodo = st.tabs(
-    ["Evaluar un cliente", "Evaluar varios clientes", "Resultados del modelo",
+tab_result, tab_uno, tab_lote, tab_metodo = st.tabs(
+    ["Resultados del modelo", "Evaluar un cliente", "Evaluar varios clientes",
      "Cómo funciona"]
 )
 
@@ -268,27 +358,32 @@ with tab_uno:
 # Pestaña 2: evaluar varios clientes (archivo CSV)
 # =============================================================================
 with tab_lote:
-    st.markdown("Subí un archivo CSV con los clientes a evaluar. El modelo ya entrenado "
-                "calcula la acción recomendada para cada uno.")
-    st.warning("La app está publicada en la nube: **no subas datos reales de clientes**. "
-               "Usá solo casos ficticios o de prueba.")
-
-    plantilla = pd.DataFrame([{"id_cliente": f"C{i + 1}", **valores}
-                              for i, valores in enumerate(EJEMPLOS.values())])
-    st.download_button("Descargar plantilla CSV", plantilla.to_csv(index=False),
-                       file_name="plantilla_clientes.csv", mime="text/csv")
-    with st.expander("Formato del archivo"):
-        st.write("Una fila por cliente. Columnas obligatorias (la columna `id_cliente` "
-                 "es opcional):")
-        st.dataframe(pd.DataFrame(
-            {"Descripción": [ETIQUETAS_VAR[v] for v in VARIABLES],
-             "Mínimo": [RANGOS[v][0] for v in VARIABLES],
-             "Máximo": [RANGOS[v][1] for v in VARIABLES]}, index=VARIABLES),
-            width="stretch")
-
-    archivo = st.file_uploader("Archivo CSV", type="csv")
-    if archivo is not None:
-        evaluar_lote(archivo)
+    st.markdown("Evaluá un grupo de clientes con el modelo ya entrenado.")
+    origen = st.radio("Clientes a evaluar",
+                      ["100 clientes de ejemplo", "Subir mi archivo CSV"], horizontal=True)
+    if origen == "100 clientes de ejemplo":
+        st.caption("Clientes simulados del conjunto de prueba, expresados en unidades reales.")
+        mostrar_lote(lote_de_ejemplo())
+    else:
+        st.warning("La app está publicada en la nube: **no subas datos reales de clientes**. "
+                   "Usá solo casos ficticios o de prueba.")
+        plantilla = pd.DataFrame([{"id_cliente": f"C{i + 1}", **valores}
+                                  for i, valores in enumerate(EJEMPLOS.values())])
+        st.download_button("Descargar plantilla CSV", plantilla.to_csv(index=False),
+                           file_name="plantilla_clientes.csv", mime="text/csv")
+        with st.expander("Formato del archivo"):
+            st.write("Una fila por cliente. Columnas obligatorias (la columna `id_cliente` "
+                     "es opcional):")
+            st.dataframe(pd.DataFrame(
+                {"Descripción": [ETIQUETAS_VAR[v] for v in VARIABLES],
+                 "Mínimo": [RANGOS[v][0] for v in VARIABLES],
+                 "Máximo": [RANGOS[v][1] for v in VARIABLES]}, index=VARIABLES),
+                width="stretch")
+        archivo = st.file_uploader("Archivo CSV", type="csv")
+        if archivo is not None:
+            lote = leer_lote(archivo)
+            if lote is not None:
+                mostrar_lote(lote)
 
 # =============================================================================
 # Pestaña 3: resultados del modelo (vista ejecutiva)
@@ -309,7 +404,11 @@ with tab_result:
                "durante el entrenamiento.".replace(",", "."))
 
     m1, m2, m3 = st.columns(3)
-    m1.metric("Costo medio con la app", pesos(costo_app))
+    m1.metric("Costo medio con la app (regla de Bayes)", pesos(costo_app),
+              help="Para cada cliente de prueba se eligió la acción de menor riesgo esperado "
+                   "(teoría de la decisión) y se tomó su costo frente al desenlace real. "
+                   "Es el promedio de esos costos: lo que efectivamente habría costado la "
+                   "política.")
     m2.metric("Costo medio con la regla actual", pesos(costo_actual),
               help="Regla actual: se asume que el cliente termina en su desenlace más "
                    "probable y se aplica la acción asociada (nada, llamado o derivación).")
@@ -317,11 +416,23 @@ with tab_result:
               .replace(".", ","))
 
     st.markdown("**Costo medio por cliente según la política**")
-    comparacion = [("Regla actual", costo_actual), ("Llamar a todos", costo_llamar),
-                   ("Con la app", costo_app),
-                   ("Ideal (si se supiera de antemano cómo termina cada cliente)", costo_ideal)]
-    for nombre, valor in comparacion:
-        st.progress(float(valor / costo_actual), text=f"{nombre}: {pesos(valor)}")
+    comparacion = pd.DataFrame({
+        "Política": ["Regla actual", "Llamar a todos", "Con la app",
+                     "Ideal (conociendo el desenlace)"],
+        "Costo medio": [costo_actual, costo_llamar, costo_app, costo_ideal],
+    })
+    comparacion["Etiqueta"] = comparacion["Costo medio"].map(pesos)
+    base = alt.Chart(comparacion).encode(
+        x=alt.X("Costo medio:Q", title=None, axis=None),
+        y=alt.Y("Política:N", sort=None, title=None,
+                axis=alt.Axis(labelFontSize=13, labelLimit=260)),
+    )
+    barras = base.mark_bar(cornerRadiusEnd=4, height=34).encode(
+        color=alt.condition(alt.datum["Política"] == "Con la app",
+                            alt.value("#1976d2"), alt.value("#c5cae9")))
+    textos = base.mark_text(align="left", dx=6, fontSize=14, fontWeight="bold").encode(
+        text="Etiqueta:N")
+    st.altair_chart((barras + textos).properties(height=230), width="stretch")
 
     st.markdown("**Por qué ahorra:** la regla actual no hace nada con los clientes que "
                 "probablemente se regularicen solos, pero una parte de ellos sí necesitaba "
