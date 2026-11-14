@@ -192,6 +192,11 @@ def mostrar_lote(lote: pd.DataFrame):
     res = lote.copy()
     res["accion_recomendada"] = [ACCIONES[a] for a in acc_l]
     res["costo_esperado"] = riesgos_l.min(axis=1).round(0)
+    # Costo de la acción en sí: lo que cuesta aunque el cliente se regularice solo
+    # (columna "Se regulariza solo" de la matriz). El resto del costo esperado es
+    # pérdida por lo que no se recupera del préstamo.
+    res["costo_accion"] = C[acc_l, 0].round(0)
+    res["perdida_esperada"] = (res["costo_esperado"] - res["costo_accion"]).clip(lower=0)
     res["prob_se_regulariza_solo"] = post_l[:, 0].round(3)
     res["prob_regulariza_con_gestion"] = post_l[:, 1].round(3)
     res["prob_mora_grave"] = post_l[:, 2].round(3)
@@ -200,21 +205,37 @@ def mostrar_lote(lote: pd.DataFrame):
     conteo = res["accion_recomendada"].value_counts().reindex(ACCIONES, fill_value=0)
     a_derivar, a_llamar = int(conteo["Derivar a recupero"]), int(conteo["Llamado"])
 
-    k1, k2, k3, k4 = st.columns(4)
+    k1, k2, k3 = st.columns(3)
     k1.metric("Clientes evaluados", n)
     k2.metric("A derivar a recupero", f"{a_derivar} ({a_derivar / n:.0%})")
     k3.metric("A llamar", f"{a_llamar} ({a_llamar / n:.0%})")
-    k4.metric("Costo esperado total", pesos(res["costo_esperado"].sum()))
+
+    total_accion = res["costo_accion"].sum()
+    total_perdida = res["perdida_esperada"].sum()
+    st.markdown("**¿Cuánto se espera que cueste este grupo?**")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Costo de las acciones", pesos(total_accion),
+              help="Lo que cuestan los recordatorios, llamados y derivaciones en sí, "
+                   "aunque el cliente termine pagando.")
+    c2.metric("Dinero que se espera no recuperar", pesos(total_perdida),
+              help="Pérdida esperada por la parte del préstamo que no se recupera, más los "
+                   "costos de mora. Depende del riesgo de cada cliente, no de la gestión.")
+    c3.metric("Costo esperado total", pesos(total_accion + total_perdida))
+    st.caption(f"El {total_perdida / (total_accion + total_perdida):.0%} del costo esperado no "
+               "es gasto de gestión: es dinero que probablemente no se recupere. La acción "
+               "recomendada es la que deja ese total en el mínimo posible.")
 
     resumen = pd.DataFrame({
         "Acción": ACCIONES,
         "Clientes": conteo.values,
-        "Costo esperado": [res.loc[res["accion_recomendada"] == a, "costo_esperado"].sum()
-                           for a in ACCIONES],
+        "Costo de la acción": [res.loc[res["accion_recomendada"] == a, "costo_accion"].sum()
+                               for a in ACCIONES],
+        "Dinero no recuperado": [res.loc[res["accion_recomendada"] == a,
+                                         "perdida_esperada"].sum() for a in ACCIONES],
     })
+    resumen["Costo esperado"] = resumen["Costo de la acción"] + resumen["Dinero no recuperado"]
     resumen["Etiqueta clientes"] = [f"{a}: {c}" for a, c in zip(ACCIONES, conteo.values)]
     resumen["Etiqueta costo"] = resumen["Costo esperado"].map(pesos)
-    escala = alt.Scale(domain=ACCIONES, range=[COLORES[a] for a in ACCIONES])
 
     g1, g2 = st.columns(2, gap="large")
     with g1:
@@ -230,25 +251,36 @@ def mostrar_lote(lote: pd.DataFrame):
         ).properties(height=300)
         st.altair_chart(dona, width="stretch")
     with g2:
-        st.markdown("**¿Dónde está el costo esperado?**")
-        base = alt.Chart(resumen).encode(
-            x=alt.X("Costo esperado:Q", title=None, axis=None,
+        st.markdown("**¿De qué se compone el costo esperado?**")
+        partes = resumen.melt(id_vars=["Acción"],
+                              value_vars=["Costo de la acción", "Dinero no recuperado"],
+                              var_name="Componente", value_name="Pesos")
+        apiladas = alt.Chart(partes).mark_bar(height=34).encode(
+            x=alt.X("sum(Pesos):Q", title=None, axis=None,
                     scale=alt.Scale(domainMax=resumen["Costo esperado"].max() * 1.35)),
             y=alt.Y("Acción:N", sort=ACCIONES, title=None,
                     axis=alt.Axis(labelFontSize=13, labelLimit=200)),
+            color=alt.Color("Componente:N",
+                            scale=alt.Scale(domain=["Costo de la acción",
+                                                    "Dinero no recuperado"],
+                                            range=["#90a4ae", "#8e1b1b"]),
+                            legend=alt.Legend(orient="bottom", title=None,
+                                              labelFontSize=13)),
+            order=alt.Order("Componente:N"),
+            tooltip=["Acción", "Componente", alt.Tooltip("Pesos:Q", format=",.0f")],
         )
-        barras = base.mark_bar(cornerRadiusEnd=4, height=34).encode(
-            color=alt.Color("Acción:N", scale=escala, legend=None))
-        textos = base.mark_text(align="left", dx=6, fontSize=13, fontWeight="bold").encode(
+        textos = alt.Chart(resumen).mark_text(align="left", dx=6, fontSize=13,
+                                              fontWeight="bold").encode(
+            x="Costo esperado:Q", y=alt.Y("Acción:N", sort=ACCIONES),
             text="Etiqueta costo:N")
-        st.altair_chart((barras + textos).properties(height=300), width="stretch")
+        st.altair_chart((apiladas + textos).properties(height=300), width="stretch")
 
     total = resumen["Costo esperado"].sum()
     if a_derivar and total > 0:
         part = resumen.loc[resumen["Acción"] == "Derivar a recupero", "Costo esperado"].iloc[0]
         st.info(f"Los clientes a derivar son el {a_derivar / n:.0%} del grupo, pero concentran "
-                f"el {part / total:.0%} del costo esperado: son los casos donde conviene poner "
-                "la atención primero.")
+                f"el {part / total:.0%} del costo esperado. Casi todo es dinero que se espera "
+                "no recuperar: derivar no lo elimina, lo achica frente a no actuar.")
 
     st.markdown("**Prioridad: los 10 clientes con mayor probabilidad de mora grave**")
     top = res.nlargest(10, "prob_mora_grave")[
@@ -291,6 +323,8 @@ qda, X_tr, X_te, y_tr, y_te = ajustar_modelo(df)
 
 with st.expander("Costos de cada acción (editable)"):
     st.write("Costo en pesos por cliente de cada acción, según cómo termine el cliente. "
+             "Cada valor suma lo que cuesta la acción y el dinero del préstamo que no se "
+             "recupera. Por eso las celdas de mora grave son tan altas. "
              "Si cambiás un valor, todas las pestañas se recalculan.")
     costos = st.data_editor(COSTOS_BASE, width="stretch", key="costos")
 if costos.isna().any().any() or (costos < 0).any().any():
@@ -339,7 +373,14 @@ with tab_uno:
     with col_out:
         aviso, explicacion = ESTILO_ACCION[accion]
         aviso(f"### {accion}\n{explicacion}")
-        st.metric("Costo esperado de esta acción", pesos(riesgos[i_opt]))
+        costo_accion = C[i_opt, 0]
+        perdida = max(riesgos[i_opt] - costo_accion, 0)
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Costo esperado", pesos(riesgos[i_opt]))
+        m2.metric("Costo de la acción", pesos(costo_accion))
+        m3.metric("Dinero que se espera no recuperar", pesos(perdida),
+                  help="Parte del préstamo que probablemente no se recupere, más los costos "
+                       "de mora, ponderada por la probabilidad de cada desenlace.")
 
         st.markdown("**¿Cómo es probable que termine este cliente?**")
         for nombre, p in zip(CLASES, post):
@@ -473,6 +514,14 @@ with tab_metodo:
     st.write("La acción recomendada no tiene por qué coincidir con el desenlace más "
              "probable: la matriz de costos puede empujar la decisión hacia la acción que "
              "evita el error más caro.")
+    st.markdown("**Qué incluye cada costo**")
+    st.write("La matriz no mide solo el gasto de gestión. Cada celda suma el costo de la "
+             "acción y la pérdida por lo que no se recupera del préstamo. Por ejemplo, "
+             "derivar a recupero a un cliente que termina en mora grave cuesta $ 595.000: "
+             "$ 20.000 de la derivación más la parte de la deuda que no se recupera y los "
+             "honorarios. Derivar no evita la pérdida; la achica frente a no hacer nada "
+             "($ 765.000). La app separa ese total en dos: costo de la acción (lo que cuesta "
+             "aunque el cliente pague) y dinero que se espera no recuperar.")
     st.markdown("**3. Escala de las variables**")
     st.write("Los datos simulados están en escala logit: cada variable se lleva a (0, 1) con "
              "límites de negocio y luego se aplica logit, para que el supuesto de normalidad "

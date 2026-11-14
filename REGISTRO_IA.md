@@ -46,6 +46,7 @@ Cada fila es una interacción con la IA durante la construcción de la app. Este
 | 21 | 09/11/2026 | Aclarar qué es "Costo medio con la app" | Explicación: costo realizado (ex post) de la regla de Bayes en test, distinto del riesgo esperado (ex ante) de cada cliente | La etiqueta era ambigua; pasó a "Costo medio con la app (regla de Bayes)" con una ayuda emergente | Mati | E / C |
 | 22 | 09/11/2026 | Reorganizar: el resultado del modelo primero | "Resultados del modelo" pasó a ser la primera pestaña, con un gráfico que destaca la política de la app | — | Mati | P |
 | 23 | 09/11/2026 | Evaluación de varios clientes más ejecutiva | Indicadores, gráfico de anillo por acción, barras de costo esperado por acción, frase con la concentración del costo y los 10 clientes prioritarios; la tabla completa queda plegada. Se agregó un lote de 100 clientes de ejemplo para la demo | Colores fijos por acción en toda la app | Mati (pedido); IA (diseño) | A |
+| 24 | 14/11/2026 | Entender por qué el costo esperado del lote era tan alto | La IA mostró que cada celda de la matriz suma el costo de la acción y el dinero que no se recupera del préstamo; verificación a mano de un cliente y comparación con el costo medio en test | El total se separó en "costo de las acciones" y "dinero que se espera no recuperar", en la evaluación de uno y de varios clientes, y se explicó en "Cómo funciona" | Mati (detectó la confusión y pidió aclararlo) | E / C |
 
 ## Limitaciones conocidas (se completa a medida que avanza)
 
